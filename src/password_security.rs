@@ -122,7 +122,7 @@ pub fn temporary_password() -> String {
 }
 
 // Should only be called in server
-pub fn sync_current_password_to_backend_with_retry(
+pub fn refresh_temporary_password_to_backend_with_retry(
     delay_secs: u64,
     retry_count: usize,
     retry_interval_secs: u64,
@@ -130,11 +130,13 @@ pub fn sync_current_password_to_backend_with_retry(
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(delay_secs));
 
+        update_temporary_password();
+        let password = temporary_password();
+
         for attempt in 1..=retry_count {
-            let password = temporary_password();
             if password.is_empty() {
                 log::warn!(
-                    "启动后同步当前一次性密码失败: 密码为空, attempt={}/{}",
+                    "启动后刷新并同步一次性密码失败: 密码为空, attempt={}/{}",
                     attempt,
                     retry_count
                 );
@@ -142,7 +144,7 @@ pub fn sync_current_password_to_backend_with_retry(
                 match send_password_to_backend(&password) {
                     Ok(_) => {
                         log::info!(
-                            "启动后同步当前一次性密码成功, attempt={}/{}",
+                            "启动后刷新并同步一次性密码成功, attempt={}/{}",
                             attempt,
                             retry_count
                         );
@@ -150,7 +152,7 @@ pub fn sync_current_password_to_backend_with_retry(
                     }
                     Err(e) => {
                         log::error!(
-                            "启动后同步当前一次性密码失败: {}, attempt={}/{}",
+                            "启动后刷新并同步一次性密码失败: {}, attempt={}/{}",
                             e,
                             attempt,
                             retry_count

@@ -66,7 +66,7 @@ fn send_password_to_backend(password: &str) -> Result<(), String> {
     }
 
     // 后端接口地址
-    const BACKEND_API_URL: &str = "http://49.232.158.32:8080";
+    const BACKEND_API_URL: &str = "https://www.qqhr.cloud/prod-api";
     let update_url = format!("{}/device/device/updatePassword", BACKEND_API_URL);
 
     // 构建请求体
